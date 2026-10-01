@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { AlertCircle, Boxes, Loader2, ReceiptIndianRupee, ScanBarcode } from "lucide-react";
 import { LogoMark } from "@/components/Logo";
@@ -10,11 +10,18 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Set Firebase up before the click, so the pop-up opens straight from the click (blockers allow that).
+  useEffect(() => {
+    getClientAuth();
+  }, []);
+
   async function login() {
     setError("");
     setBusy(true);
     try {
-      const cred = await signInWithPopup(getClientAuth(), new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      const cred = await signInWithPopup(getClientAuth(), provider);
       const idToken = await cred.user.getIdToken();
       const res = await fetch("/api/session", {
         method: "POST",
@@ -33,7 +40,9 @@ export default function LoginPage() {
       }
     } catch (e) {
       const code = (e as { code?: string }).code;
-      if (code === "auth/unauthorized-domain") {
+      if (code === "auth/popup-blocked") {
+        setError("Your browser blocked the Google sign-in window. Allow pop-ups for this site (icon at the right of the address bar), then try again.");
+      } else if (code === "auth/unauthorized-domain") {
         setError(`This domain (${window.location.hostname}) is not authorised in Firebase. Add it under Authentication → Settings → Authorized domains.`);
       } else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
         setError(`Sign-in failed (${code ?? (e instanceof Error ? e.message : "unknown error")}).`);
