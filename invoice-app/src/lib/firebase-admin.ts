@@ -5,9 +5,18 @@ import { getFirestore, type Firestore } from "firebase-admin/firestore";
 function app() {
   const existing = getApps()[0];
   if (existing) return existing;
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  let raw = (process.env.FIREBASE_SERVICE_ACCOUNT ?? "").trim();
   if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT env var is missing");
-  const sa = JSON.parse(raw);
+  // Hosting dashboards often keep the quotes used in .env files; strip one matching pair.
+  if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) raw = raw.slice(1, -1);
+  // Also accept base64-encoded JSON.
+  if (!raw.startsWith("{")) raw = Buffer.from(raw, "base64").toString("utf8");
+  let sa;
+  try {
+    sa = JSON.parse(raw);
+  } catch {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT is not valid JSON. Paste the service account file contents as-is, without surrounding quotes.");
+  }
   sa.private_key = String(sa.private_key).replace(/\\n/g, "\n");
   return initializeApp({ credential: cert(sa) });
 }
