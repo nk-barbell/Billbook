@@ -1,0 +1,10 @@
+# Secrets: never commit
+*adminsdk*.json
+*service-account*.json
+.env*
+!.env.example
+
+# Local tooling
+.claude/
+node_modules/
+.next/
