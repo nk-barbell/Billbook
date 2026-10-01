@@ -25,15 +25,18 @@ export default function LoginPage() {
       if (res.status === 403) {
         setError("This email has not been added yet. Ask your administrator or company owner to add you, then try again.");
       } else if (!res.ok) {
-        setError("Sign-in failed. Please try again.");
+        const body = await res.json().catch(() => ({}));
+        setError(`Server could not start your session (${body.code ?? res.status}).`);
       } else {
         window.location.href = "/";
         return;
       }
     } catch (e) {
       const code = (e as { code?: string }).code;
-      if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
-        setError("Sign-in failed. Please try again.");
+      if (code === "auth/unauthorized-domain") {
+        setError(`This domain (${window.location.hostname}) is not authorised in Firebase. Add it under Authentication → Settings → Authorized domains.`);
+      } else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
+        setError(`Sign-in failed (${code ?? (e instanceof Error ? e.message : "unknown error")}).`);
       }
     }
     setBusy(false);

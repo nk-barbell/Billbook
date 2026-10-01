@@ -26,7 +26,9 @@ export async function POST(req: Request) {
       path: "/",
     });
     return res;
-  } catch {
-    return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+  } catch (e) {
+    console.error("[session] sign-in failed:", e);
+    const code = (e as { code?: string }).code ?? (e instanceof Error ? e.message : "unknown");
+    return NextResponse.json({ error: "server", code }, { status: 401 });
   }
 }
