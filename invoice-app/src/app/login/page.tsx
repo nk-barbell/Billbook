@@ -1,54 +1,80 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+import { GoogleAuthProvider, getRedirectResult, signInWithPopup, signInWithRedirect, signOut, type User } from "firebase/auth";
 import { AlertCircle, Boxes, Loader2, ReceiptIndianRupee, ScanBarcode } from "lucide-react";
 import { LogoMark } from "@/components/Logo";
 import { getClientAuth } from "@/lib/firebase-client";
+
+function provider() {
+  const p = new GoogleAuthProvider();
+  p.setCustomParameters({ prompt: "select_account" });
+  return p;
+}
 
 export default function LoginPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Set Firebase up before the click, so the pop-up opens straight from the click (blockers allow that).
+  function showError(e: unknown) {
+    const code = (e as { code?: string }).code;
+    if (code === "auth/unauthorized-domain") {
+      setError(`This domain (${window.location.hostname}) is not authorised in Firebase. Add it under Authentication → Settings → Authorized domains.`);
+    } else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
+      setError(`Sign-in failed (${code ?? (e instanceof Error ? e.message : "unknown error")}).`);
+    }
+    setBusy(false);
+  }
+
+  // Exchange the Google sign-in for our server session cookie.
+  async function startSession(user: User) {
+    const idToken = await user.getIdToken();
+    const res = await fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    await signOut(getClientAuth()); // the server cookie is our session; no need to keep the client one
+    if (res.status === 403) {
+      setError("This email has not been added yet. Ask your administrator or company owner to add you, then try again.");
+    } else if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(`Server could not start your session (${body.code ?? res.status}).`);
+    } else {
+      window.location.href = "/";
+      return;
+    }
+    setBusy(false);
+  }
+
+  // Finishes a redirect sign-in (fallback path). Also loads Google's sign-in helper early,
+  // so a later pop-up opens immediately on click.
   useEffect(() => {
-    getClientAuth();
+    getRedirectResult(getClientAuth())
+      .then((cred) => {
+        if (cred) {
+          setBusy(true);
+          return startSession(cred.user);
+        }
+      })
+      .catch(showError);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function login() {
     setError("");
     setBusy(true);
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      const cred = await signInWithPopup(getClientAuth(), provider);
-      const idToken = await cred.user.getIdToken();
-      const res = await fetch("/api/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken }),
-      });
-      await signOut(getClientAuth()); // the server cookie is our session; no need to keep the client one
-      if (res.status === 403) {
-        setError("This email has not been added yet. Ask your administrator or company owner to add you, then try again.");
-      } else if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(`Server could not start your session (${body.code ?? res.status}).`);
-      } else {
-        window.location.href = "/";
+      const cred = await signInWithPopup(getClientAuth(), provider());
+      await startSession(cred.user);
+    } catch (e) {
+      // Pop-up blocked: sign in by redirecting this page to Google and back instead.
+      if ((e as { code?: string }).code === "auth/popup-blocked") {
+        await signInWithRedirect(getClientAuth(), provider()).catch(showError);
         return;
       }
-    } catch (e) {
-      const code = (e as { code?: string }).code;
-      if (code === "auth/popup-blocked") {
-        setError("Your browser blocked the Google sign-in window. Allow pop-ups for this site (icon at the right of the address bar), then try again.");
-      } else if (code === "auth/unauthorized-domain") {
-        setError(`This domain (${window.location.hostname}) is not authorised in Firebase. Add it under Authentication → Settings → Authorized domains.`);
-      } else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
-        setError(`Sign-in failed (${code ?? (e instanceof Error ? e.message : "unknown error")}).`);
-      }
+      showError(e);
     }
-    setBusy(false);
   }
 
   const features = [
